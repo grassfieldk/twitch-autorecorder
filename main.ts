@@ -13,7 +13,17 @@ const LOGDIR = path.join(__dirname, 'logs');
 const EXIT_FILE = path.join(__dirname, '../exit');
 
 const USER_NAME = process.argv[2];
-if (!USER_NAME) usage();
+if (!USER_NAME) {
+  console.error('[ERROR] No username provided. Usage: node main.js <twitch_username>');
+  process.exit(1);
+}
+
+const AUTH_TOKEN = process.env.TWITCH_AUTH_TOKEN;
+if (!AUTH_TOKEN) {
+  console.warn(
+    '[WARN] TWITCH_AUTH_TOKEN is not set in `.env`. You may get ads screen in your recordings.'
+  );
+}
 
 const logger = winston.createLogger({
   level: 'info',
@@ -25,11 +35,6 @@ const logger = winston.createLogger({
   ),
   transports: [new winston.transports.Console()],
 });
-
-function usage() {
-  console.error('[ERROR] No username provided. Usage: node main.js <twitch_username>');
-  process.exit(1);
-}
 
 function cleanOldLogs(): void {
   const files = fs.readdirSync(LOGDIR);
@@ -50,19 +55,33 @@ function cleanOldLogs(): void {
 
 const execAsync = promisify(exec);
 
+function getLogTimestamp(): string {
+  const d = new Date();
+  return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function formatLogLine(msg: string, tokenStatus: string): string {
+  return `[INFO] ${getLogTimestamp()} ${tokenStatus}: ${msg}`;
+}
+
+function getLogFilePath(type: 'watch' | 'download'): string {
+  if (type === 'watch') {
+    return path.join(LOGDIR, `${USER_NAME}_watch_${getDate()}.log`);
+  } else {
+    return path.join(LOGDIR, `${USER_NAME}_download_${getDateTimeShort()}.log`);
+  }
+}
+
+function writeLog(type: 'watch' | 'download', msg: string) {
+  const tokenStatus = AUTH_TOKEN ? '(auth: yes)' : '(auth: no)';
+  const logLine = formatLogLine(msg, tokenStatus);
+  logger.info(`${tokenStatus}: ${msg}`);
+  fs.appendFileSync(getLogFilePath(type), logLine + '\n');
+}
+
 const log = {
-  watch: (msg: string) => {
-    const date = getDate();
-    const logfile = path.join(LOGDIR, `${USER_NAME}_watch_${date}.log`);
-    logger.info(msg);
-    fs.appendFileSync(logfile, `[INFO] ${new Date().toLocaleString()}: ${msg}\n`);
-  },
-  download: (msg: string) => {
-    const shortDateTime = getDateTimeShort();
-    const logfile = path.join(LOGDIR, `${USER_NAME}_download_${shortDateTime}.log`);
-    logger.info(msg);
-    fs.appendFileSync(logfile, `[INFO] ${new Date().toLocaleString()}: ${msg}\n`);
-  },
+  watch: (msg: string) => writeLog('watch', msg),
+  download: (msg: string) => writeLog('download', msg),
 };
 
 async function getAndRecordProcessAsync(): Promise<void> {
@@ -75,12 +94,12 @@ async function getAndRecordProcessAsync(): Promise<void> {
 
   let url: string | null = null;
   try {
-    const { stdout } = await execAsync(
-      `streamlink --twitch-disable-hosting --stream-url https://www.twitch.tv/${USER_NAME} best`
-    );
+    const tokenOpt = AUTH_TOKEN ? `--twitch-api-header 'Authorization=OAuth ${AUTH_TOKEN}'` : '';
+    const cmd = `streamlink --twitch-disable-hosting ${tokenOpt} --stream-url https://www.twitch.tv/${USER_NAME} best`;
+    const { stdout } = await execAsync(cmd);
     url = stdout.trim();
   } catch {
-    log.watch(`${USER_NAME} is offline.`);
+    log.watch(`${USER_NAME} is offline or token invalid.`);
     return;
   }
 
