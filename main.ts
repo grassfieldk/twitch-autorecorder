@@ -1,7 +1,8 @@
-import { execSync, spawn } from 'child_process';
+import { exec, spawn } from 'child_process';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { promisify } from 'util';
 import winston from 'winston';
 
 dotenv.config();
@@ -9,6 +10,7 @@ dotenv.config();
 const VIDEO_DIR = expandHome(process.env.VIDEO_DIR || path.join(__dirname, 'downloads'));
 const INTERVAL = Number(process.env.INTERVAL) || 55;
 const LOGDIR = path.join(__dirname, 'logs');
+const EXIT_FILE = path.join(__dirname, '../exit');
 
 const USER_NAME = process.argv[2];
 if (!USER_NAME) usage();
@@ -21,12 +23,8 @@ const logger = winston.createLogger({
       return `[${level.toUpperCase()}] ${timestamp}: ${message}`;
     })
   ),
-  transports: [
-    new winston.transports.Console(),
-    new winston.transports.File({ filename: path.join(LOGDIR, `${USER_NAME}_app.log`) }),
-  ],
+  transports: [new winston.transports.Console()],
 });
-const EXIT_FILE = path.join(__dirname, '../exit');
 
 function usage() {
   console.error('[ERROR] No username provided. Usage: node main.js <twitch_username>');
@@ -44,58 +42,78 @@ function cleanOldLogs(): void {
       if ((now - stat.mtimeMs) / (1000 * 60 * 60 * 24) > 3) {
         fs.unlinkSync(filePath);
       }
-    } catch {}
+    } catch {
+      logger.warn(`[WARN] Failed to stat or delete log file: ${filePath}`);
+    }
   });
 }
 
-function log(msg: string, logfile: string): void {
-  logger.info(msg);
-  fs.appendFileSync(logfile, `[INFO] ${new Date().toLocaleString()}: ${msg}\n`);
-}
+const execAsync = promisify(exec);
 
-function getAndRecordProcess(): void {
+const log = {
+  watch: (msg: string) => {
+    const date = getDate();
+    const logfile = path.join(LOGDIR, `${USER_NAME}_watch_${date}.log`);
+    logger.info(msg);
+    fs.appendFileSync(logfile, `[INFO] ${new Date().toLocaleString()}: ${msg}\n`);
+  },
+  download: (msg: string) => {
+    const shortDateTime = getDateTimeShort();
+    const logfile = path.join(LOGDIR, `${USER_NAME}_download_${shortDateTime}.log`);
+    logger.info(msg);
+    fs.appendFileSync(logfile, `[INFO] ${new Date().toLocaleString()}: ${msg}\n`);
+  },
+};
+
+async function getAndRecordProcessAsync(): Promise<void> {
   cleanOldLogs();
 
-  const logfile = path.join(LOGDIR, `watch_${getDate()}.log`);
-
   if (fs.existsSync(EXIT_FILE)) {
-    log('exit file detected, aborting..', logfile);
+    log.watch('exit file detected, aborting..');
     process.exit(0);
   }
 
   let url: string | null = null;
   try {
-    url = execSync(
+    const { stdout } = await execAsync(
       `streamlink --twitch-disable-hosting --stream-url https://www.twitch.tv/${USER_NAME} best`
-    )
-      .toString()
-      .trim();
+    );
+    url = stdout.trim();
   } catch {
-    log(`${USER_NAME} is offline.`, logfile);
+    log.watch(`${USER_NAME} is offline.`);
     return;
   }
 
   if (url) {
-    log(`${USER_NAME} is online! downloading..`, logfile);
+    log.watch(`${USER_NAME} is online! downloading..`);
+
     const datetime = getDateTime();
     const outFile = path.join(VIDEO_DIR, `${USER_NAME}_${datetime}.mp4`);
-    const ffmpeg = spawn('ffmpeg', ['-i', url, '-c', 'copy', outFile]);
-    const downloadLog = path.join(LOGDIR, `download_${getDateTimeShort()}.log`);
-    const logStream = fs.createWriteStream(downloadLog);
-    ffmpeg.stderr.pipe(logStream);
-    ffmpeg.on('close', (code) => {
-      if (code === 0) {
-        log('Download complete.', logfile);
-      } else {
-        log(`Download failed with code ${code}.`, logfile);
-      }
+
+    await new Promise<void>((resolve) => {
+      const ffmpeg = spawn('ffmpeg', ['-i', url, '-c', 'copy', outFile]);
+      const logStream = fs.createWriteStream(
+        path.join(LOGDIR, `${USER_NAME}_download_${getDateTimeShort()}.log`)
+      );
+
+      ffmpeg.stderr.pipe(logStream);
+      ffmpeg.on('close', (code) => {
+        if (code === 0) {
+          log.watch('Download complete.');
+        } else {
+          log.watch(`Download failed with code ${code}.`);
+        }
+        resolve();
+      });
     });
   }
 }
 
-function main(): void {
-  getAndRecordProcess();
-  setInterval(getAndRecordProcess, INTERVAL * 1000);
+async function main(): Promise<void> {
+  while (true) {
+    await getAndRecordProcessAsync();
+    await new Promise((r) => setTimeout(r, INTERVAL * 1000));
+  }
 }
 
 function getDate(): string {
