@@ -136,10 +136,20 @@ async function getAndRecordProcessAsync(): Promise<void> {
   let url: string | null = null;
   try {
     const cmd = buildStreamlinkCmd({ user: USER_NAME, token: AUTH_TOKEN });
-    const { stdout } = await execAsync(cmd);
-
+    const { stdout, stderr } = await execAsync(cmd);
+    if (stdout.includes('error: Unauthorized') || stderr.includes('error: Unauthorized')) {
+      console.error('Twitch OAuth token is invalid. Please check your .env.');
+      process.exit(1);
+    }
     url = stdout.trim();
   } catch (err: any) {
+    if (
+      (err.stdout && err.stdout.includes('error: Unauthorized')) ||
+      (err.stderr && err.stderr.includes('error: Unauthorized'))
+    ) {
+      console.error('Twitch OAuth token is invalid. Please check your .env.');
+      process.exit(1);
+    }
     log.watch(`${USER_NAME} is offline.`);
     return;
   }
@@ -169,31 +179,7 @@ async function getAndRecordProcessAsync(): Promise<void> {
   }
 }
 
-async function checkTwitchTokenValid(): Promise<boolean> {
-  const cmd = buildStreamlinkCmd({ user: USER_NAME, token: AUTH_TOKEN });
-  try {
-    const { stdout, stderr } = await execAsync(cmd);
-    if (stdout.includes('error: Unauthorized') || stderr.includes('error: Unauthorized')) {
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    if (
-      (err.stdout && err.stdout.includes('error: Unauthorized')) ||
-      (err.stderr && err.stderr.includes('error: Unauthorized'))
-    ) {
-      return false;
-    }
-    return true;
-  }
-}
-
 async function main(): Promise<void> {
-  const valid = await checkTwitchTokenValid();
-  if (!valid) {
-    console.error('Twitch OAuth token is invalid. Please check your .env.');
-    process.exit(1);
-  }
   while (true) {
     await getAndRecordProcessAsync();
     await new Promise((r) => setTimeout(r, INTERVAL * 1000));
