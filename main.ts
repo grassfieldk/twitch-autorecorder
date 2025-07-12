@@ -36,24 +36,33 @@ const logger = winston.createLogger({
   transports: [new winston.transports.Console()],
 });
 
-function cleanOldLogs(): void {
-  const files = fs.readdirSync(LOGDIR);
-  const now = Date.now();
+const execAsync = promisify(exec);
 
-  files.forEach((file) => {
-    const filePath = path.join(LOGDIR, file);
-    try {
-      const stat = fs.statSync(filePath);
-      if ((now - stat.mtimeMs) / (1000 * 60 * 60 * 24) > 3) {
-        fs.unlinkSync(filePath);
-      }
-    } catch {
-      logger.warn(`[WARN] Failed to stat or delete log file: ${filePath}`);
-    }
-  });
+function pad(n: number): string {
+  return n.toString().padStart(2, '0');
 }
 
-const execAsync = promisify(exec);
+function expandHome(p: string): string {
+  if (p.startsWith('~/')) {
+    return path.join(process.env.HOME || '', p.slice(2));
+  }
+  return p;
+}
+
+function getDate(): string {
+  const d = new Date();
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+}
+
+function getDateTime(): string {
+  const d = new Date();
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}_${pad(d.getSeconds())}`;
+}
+
+function getDateTimeShort(): string {
+  const d = new Date();
+  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+}
 
 function getLogTimestamp(): string {
   const d = new Date();
@@ -84,6 +93,38 @@ const log = {
   download: (msg: string) => writeLog('download', msg),
 };
 
+function cleanOldLogs(): void {
+  const files = fs.readdirSync(LOGDIR);
+  const now = Date.now();
+
+  files.forEach((file) => {
+    const filePath = path.join(LOGDIR, file);
+    try {
+      const stat = fs.statSync(filePath);
+      if ((now - stat.mtimeMs) / (1000 * 60 * 60 * 24) > 3) {
+        fs.unlinkSync(filePath);
+      }
+    } catch {
+      logger.warn(`[WARN] Failed to stat or delete log file: ${filePath}`);
+    }
+  });
+}
+
+function checkCommandExists(cmd: string): boolean {
+  try {
+    require('child_process').execSync(`which ${cmd}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildStreamlinkCmd({ user, token }: { user: string; token?: string }) {
+  const tokenOpt = token ? `--twitch-api-header 'Authorization=OAuth ${token}'` : '';
+  const url = `https://www.twitch.tv/${user}`;
+  return `streamlink --twitch-disable-hosting ${tokenOpt} --stream-url ${url} best`;
+}
+
 async function getAndRecordProcessAsync(): Promise<void> {
   cleanOldLogs();
 
@@ -94,12 +135,11 @@ async function getAndRecordProcessAsync(): Promise<void> {
 
   let url: string | null = null;
   try {
-    const tokenOpt = AUTH_TOKEN ? `--twitch-api-header 'Authorization=OAuth ${AUTH_TOKEN}'` : '';
-    const cmd = `streamlink --twitch-disable-hosting ${tokenOpt} --stream-url https://www.twitch.tv/${USER_NAME} best`;
+    const cmd = buildStreamlinkCmd({ user: USER_NAME, token: AUTH_TOKEN });
     const { stdout } = await execAsync(cmd);
 
     url = stdout.trim();
-  } catch {
+  } catch (err: any) {
     log.watch(`${USER_NAME} is offline.`);
     return;
   }
@@ -130,9 +170,7 @@ async function getAndRecordProcessAsync(): Promise<void> {
 }
 
 async function checkTwitchTokenValid(): Promise<boolean> {
-  const tokenOpt = AUTH_TOKEN ? `--twitch-api-header 'Authorization=OAuth ${AUTH_TOKEN}'` : '';
-  const cmd = `streamlink --twitch-disable-hosting ${tokenOpt} https://www.twitch.tv/${USER_NAME}`;
-
+  const cmd = buildStreamlinkCmd({ user: USER_NAME, token: AUTH_TOKEN });
   try {
     const { stdout, stderr } = await execAsync(cmd);
     if (stdout.includes('error: Unauthorized') || stderr.includes('error: Unauthorized')) {
@@ -159,41 +197,6 @@ async function main(): Promise<void> {
   while (true) {
     await getAndRecordProcessAsync();
     await new Promise((r) => setTimeout(r, INTERVAL * 1000));
-  }
-}
-
-function getDate(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-}
-
-function getDateTime(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}_${pad(d.getSeconds())}`;
-}
-
-function getDateTimeShort(): string {
-  const d = new Date();
-  return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
-}
-
-function pad(n: number): string {
-  return n.toString().padStart(2, '0');
-}
-
-function expandHome(p: string): string {
-  if (p.startsWith('~/')) {
-    return path.join(process.env.HOME || '', p.slice(2));
-  }
-  return p;
-}
-
-function checkCommandExists(cmd: string): boolean {
-  try {
-    require('child_process').execSync(`which ${cmd}`);
-    return true;
-  } catch {
-    return false;
   }
 }
 
