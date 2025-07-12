@@ -97,9 +97,10 @@ async function getAndRecordProcessAsync(): Promise<void> {
     const tokenOpt = AUTH_TOKEN ? `--twitch-api-header 'Authorization=OAuth ${AUTH_TOKEN}'` : '';
     const cmd = `streamlink --twitch-disable-hosting ${tokenOpt} --stream-url https://www.twitch.tv/${USER_NAME} best`;
     const { stdout } = await execAsync(cmd);
+
     url = stdout.trim();
   } catch {
-    log.watch(`${USER_NAME} is offline or token invalid.`);
+    log.watch(`${USER_NAME} is offline.`);
     return;
   }
 
@@ -128,7 +129,33 @@ async function getAndRecordProcessAsync(): Promise<void> {
   }
 }
 
+async function checkTwitchTokenValid(): Promise<boolean> {
+  const tokenOpt = AUTH_TOKEN ? `--twitch-api-header 'Authorization=OAuth ${AUTH_TOKEN}'` : '';
+  const cmd = `streamlink --twitch-disable-hosting ${tokenOpt} https://www.twitch.tv/${USER_NAME}`;
+
+  try {
+    const { stdout, stderr } = await execAsync(cmd);
+    if (stdout.includes('error: Unauthorized') || stderr.includes('error: Unauthorized')) {
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    if (
+      (err.stdout && err.stdout.includes('error: Unauthorized')) ||
+      (err.stderr && err.stderr.includes('error: Unauthorized'))
+    ) {
+      return false;
+    }
+    return true;
+  }
+}
+
 async function main(): Promise<void> {
+  const valid = await checkTwitchTokenValid();
+  if (!valid) {
+    console.error('[ERROR] Twitch OAuth token is invalid. Please check your .env.');
+    process.exit(1);
+  }
   while (true) {
     await getAndRecordProcessAsync();
     await new Promise((r) => setTimeout(r, INTERVAL * 1000));
