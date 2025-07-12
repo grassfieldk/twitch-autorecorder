@@ -14,14 +14,14 @@ const EXIT_FILE = path.join(__dirname, '../exit');
 
 const USER_NAME = process.argv[2];
 if (!USER_NAME) {
-  console.error('[ERROR] No username provided. Usage: node main.js <twitch_username>');
+  console.error('No username provided. Usage: node main.js <twitch_username>');
   process.exit(1);
 }
 
 const AUTH_TOKEN = process.env.TWITCH_AUTH_TOKEN;
 if (!AUTH_TOKEN) {
   console.warn(
-    '[WARN] TWITCH_AUTH_TOKEN is not set in `.env`. You may get ads screen in your recordings.'
+    'TWITCH_AUTH_TOKEN is not set in `.env`. You may get ads screen in your recordings.'
   );
 }
 
@@ -153,7 +153,7 @@ async function checkTwitchTokenValid(): Promise<boolean> {
 async function main(): Promise<void> {
   const valid = await checkTwitchTokenValid();
   if (!valid) {
-    console.error('[ERROR] Twitch OAuth token is invalid. Please check your .env.');
+    console.error('Twitch OAuth token is invalid. Please check your .env.');
     process.exit(1);
   }
   while (true) {
@@ -198,11 +198,11 @@ function checkCommandExists(cmd: string): boolean {
 }
 
 if (!checkCommandExists('streamlink')) {
-  console.error('[ERROR] streamlink is not installed or not in PATH.');
+  console.error('streamlink is not installed or not in PATH.');
   process.exit(1);
 }
 if (!checkCommandExists('ffmpeg')) {
-  console.error('[ERROR] ffmpeg is not installed or not in PATH.');
+  console.error('ffmpeg is not installed or not in PATH.');
   process.exit(1);
 }
 
