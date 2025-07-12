@@ -142,4 +142,22 @@ function expandHome(p: string): string {
   return p;
 }
 
+function checkCommandExists(cmd: string): boolean {
+  try {
+    require('child_process').execSync(`which ${cmd}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (!checkCommandExists('streamlink')) {
+  console.error('[ERROR] streamlink is not installed or not in PATH.');
+  process.exit(1);
+}
+if (!checkCommandExists('ffmpeg')) {
+  console.error('[ERROR] ffmpeg is not installed or not in PATH.');
+  process.exit(1);
+}
+
 main();
