@@ -11,7 +11,7 @@ dotenv.config();
 const VIDEO_DIR = expandHome(process.env.VIDEO_DIR || path.join(__dirname, 'downloads'));
 const INTERVAL = Number(process.env.INTERVAL) || 55;
 const LOGDIR = path.join(__dirname, 'logs');
-const EXIT_FILE = path.join(__dirname, '../exit');
+const EXIT_FILE = path.join(__dirname, './exit');
 
 const USER_NAME = process.argv[2];
 if (!USER_NAME) {
