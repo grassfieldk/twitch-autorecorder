@@ -1,4 +1,5 @@
 import { exec, spawn } from 'child_process';
+import { WebhookClient } from 'discord.js';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
@@ -24,6 +25,8 @@ if (!AUTH_TOKEN) {
     'TWITCH_AUTH_TOKEN is not set in `.env`. You may get ads screen in your recordings.'
   );
 }
+
+const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 
 const logger = winston.createLogger({
   level: 'info',
@@ -125,11 +128,31 @@ function buildStreamlinkCmd({ user, token }: { user: string; token?: string }) {
   return `streamlink --twitch-disable-hosting ${tokenOpt} --stream-url ${url} best`;
 }
 
+const discord = {
+  msg: async (message: string) => {
+    if (!DISCORD_WEBHOOK_URL) return;
+    try {
+      const match = DISCORD_WEBHOOK_URL.match(/discord\.com\/api\/webhooks\/(\d+)\/([\w-]+)/);
+      if (!match) {
+        console.warn('Invalid Discord Webhook URL format');
+        return;
+      }
+
+      const [_, id, token] = match;
+      const webhookClient = new WebhookClient({ id, token });
+
+      await webhookClient.send(`[${USER_NAME}] ${message}`);
+    } catch (err) {
+      console.warn('Failed to send Discord notification:', err);
+    }
+  },
+};
+
 async function getAndRecordProcessAsync(): Promise<void> {
   cleanOldLogs();
 
   if (fs.existsSync(EXIT_FILE)) {
-    log.watch('exit file detected, aborting..');
+    log.watch('Exit file detected, aborting.');
     process.exit(0);
   }
 
@@ -138,6 +161,7 @@ async function getAndRecordProcessAsync(): Promise<void> {
     const cmd = buildStreamlinkCmd({ user: USER_NAME, token: AUTH_TOKEN });
     const { stdout, stderr } = await execAsync(cmd);
     if (stdout.includes('error: Unauthorized') || stderr.includes('error: Unauthorized')) {
+      await discord.msg('Twitch OAuth token is invalid. Please check your .env.');
       console.error('Twitch OAuth token is invalid. Please check your .env.');
       process.exit(1);
     }
@@ -147,6 +171,7 @@ async function getAndRecordProcessAsync(): Promise<void> {
       (err.stdout && err.stdout.includes('error: Unauthorized')) ||
       (err.stderr && err.stderr.includes('error: Unauthorized'))
     ) {
+      await discord.msg('Twitch OAuth token is invalid. Please check your .env.');
       console.error('Twitch OAuth token is invalid. Please check your .env.');
       process.exit(1);
     }
@@ -155,7 +180,7 @@ async function getAndRecordProcessAsync(): Promise<void> {
   }
 
   if (url) {
-    log.watch(`${USER_NAME} is online! downloading..`);
+    log.watch(`${USER_NAME} is online! Starting download...`);
 
     const datetime = getDateTime();
     const outFile = path.join(VIDEO_DIR, `${USER_NAME}_${datetime}.mp4`);
@@ -169,9 +194,9 @@ async function getAndRecordProcessAsync(): Promise<void> {
       ffmpeg.stderr.pipe(logStream);
       ffmpeg.on('close', (code) => {
         if (code === 0) {
-          log.watch('Download complete.');
+          log.watch('Download completed.');
         } else {
-          log.watch(`Download failed with code ${code}.`);
+          log.watch(`Download failed with exit code ${code}.`);
         }
         resolve();
       });
