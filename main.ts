@@ -180,7 +180,9 @@ async function getAndRecordProcessAsync(): Promise<void> {
   }
 
   if (url) {
-    log.watch(`${USER_NAME} is online! Starting download...`);
+    const startMessage = `${USER_NAME} is online! Starting download...`;
+    log.watch(startMessage);
+    await discord.msg(startMessage);
 
     const datetime = getDateTime();
     const outFile = path.join(VIDEO_DIR, `${USER_NAME}_${datetime}.mp4`);
