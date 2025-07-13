@@ -141,7 +141,10 @@ const discord = {
       const [_, id, token] = match;
       const webhookClient = new WebhookClient({ id, token });
 
-      await webhookClient.send(`[${USER_NAME}] ${message}`);
+      const MENTION_TARGET_ID = process.env.DISCORD_MENTION_TARGET_ID;
+      const mention = MENTION_TARGET_ID ? `<@${MENTION_TARGET_ID}>\n` : '';
+
+      await webhookClient.send(`${mention}[${USER_NAME}] ${message}`);
     } catch (err) {
       console.warn('Failed to send Discord notification:', err);
     }
