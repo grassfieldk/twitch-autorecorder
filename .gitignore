@@ -2,6 +2,9 @@
 node_modules/
 .env
 
+# User config
+chat-target.json
+
 # Logs
 logs/*.log
 logs/*.txt

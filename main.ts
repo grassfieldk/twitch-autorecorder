@@ -3,6 +3,7 @@ import { WebhookClient } from 'discord.js';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import tmi from 'tmi.js';
 import { promisify } from 'util';
 import winston from 'winston';
 
@@ -151,6 +152,28 @@ const discord = {
   },
 };
 
+let chatTarget: Record<string, string> = {};
+try {
+  chatTarget = JSON.parse(fs.readFileSync(path.join(__dirname, 'chat-target.json'), 'utf-8'));
+} catch {
+  chatTarget = {};
+}
+
+async function postComment(channel: string, message: string) {
+  if (!AUTH_TOKEN) return;
+
+  const client = new tmi.Client({
+    identity: {
+      username: USER_NAME,
+      password: `oauth:${AUTH_TOKEN}`,
+    },
+    channels: [channel],
+  });
+  await client.connect();
+  await client.say(channel, message);
+  await client.disconnect();
+}
+
 async function getAndRecordProcessAsync(): Promise<void> {
   cleanOldLogs();
 
@@ -186,6 +209,10 @@ async function getAndRecordProcessAsync(): Promise<void> {
     const startMessage = `${USER_NAME} is online! Starting download...`;
     log.watch(startMessage);
     await discord.msg(startMessage);
+
+    if (chatTarget[USER_NAME]) {
+      await postComment(USER_NAME, chatTarget[USER_NAME]);
+    }
 
     const datetime = getDateTime();
     const outFile = path.join(VIDEO_DIR, `${USER_NAME}_${datetime}.mp4`);
